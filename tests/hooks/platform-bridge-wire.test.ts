@@ -459,6 +459,8 @@ describe("platform-bridge — project identity resolution", () => {
     let fakeHome: string;
     let origHome: string | undefined;
     let origXdg: string | undefined;
+    let origAppdata: string | undefined;
+    let origUserprofile: string | undefined;
     let fetchSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
@@ -466,8 +468,15 @@ describe("platform-bridge — project identity resolution", () => {
       fakeHome = mkdtempSync(join(tmpdir(), "ctx-bridge-integration-home-"));
       origHome = process.env.HOME;
       origXdg = process.env.XDG_CONFIG_HOME;
+      origAppdata = process.env.APPDATA;
+      origUserprofile = process.env.USERPROFILE;
       process.env.HOME = fakeHome;
       delete process.env.XDG_CONFIG_HOME;
+      // Same Windows-config-path coverage as the outer describe (see top
+      // of file): configPath() reads APPDATA first on win32, falls back to
+      // os.homedir() (which honors USERPROFILE). Override both.
+      process.env.APPDATA = join(fakeHome, "AppData", "Roaming");
+      process.env.USERPROFILE = fakeHome;
       fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
         new Response(null, { status: 200 }),
       );
@@ -478,6 +487,10 @@ describe("platform-bridge — project identity resolution", () => {
       else delete process.env.HOME;
       if (origXdg !== undefined) process.env.XDG_CONFIG_HOME = origXdg;
       else delete process.env.XDG_CONFIG_HOME;
+      if (origAppdata !== undefined) process.env.APPDATA = origAppdata;
+      else delete process.env.APPDATA;
+      if (origUserprofile !== undefined) process.env.USERPROFILE = origUserprofile;
+      else delete process.env.USERPROFILE;
       try { rmSync(scratchRoot, { recursive: true, force: true }); } catch {}
       try { rmSync(fakeHome, { recursive: true, force: true }); } catch {}
       vi.doUnmock("../../hooks/platform-bridge.mjs");
