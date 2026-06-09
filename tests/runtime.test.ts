@@ -960,8 +960,12 @@ describe("detectRuntimes — JS runtime fallback for in-process plugin hosts (#7
     });
     const execFileSync = vi.fn(() => Buffer.from("ok\n"));
     // Cellar path is deleted; bun fallback paths don't exist (simulate no-bun host).
+    // Cross-platform: bunFallbackPaths returns POSIX paths (/.bun/bin/bun) and
+    // Windows paths (\\.bun\\bin\\bun.exe, \\bun\\bin\\bun.exe) — all must be
+    // blocked so bunExists() returns false and PATH node is resolved.
     const CELLAR_PATH = "/opt/homebrew/Cellar/node/26.0.0/bin/node";
-    const existsSync = vi.fn((p: string) => p !== CELLAR_PATH && !p.includes("/.bun/bin/bun"));
+    const BUN_PATH_RE = /[\/\\]\.?bun[\/\\]bin[\/\\]bun/;
+    const existsSync = vi.fn((p: string) => p !== CELLAR_PATH && !BUN_PATH_RE.test(p));
 
     vi.doMock("node:child_process", () => ({ execSync, execFileSync }));
     vi.doMock("node:fs", async () => {
