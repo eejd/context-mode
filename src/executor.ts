@@ -74,6 +74,20 @@ export function buildShellScriptContent(
   return `export PATH=${quoteForPosixShell(inheritedPath)}\n${code}`;
 }
 
+function isPowerShell(shellPath: string | null | undefined): boolean {
+  const shellName = shellPath?.toLowerCase() ?? "";
+  return shellName.includes("powershell") || shellName.includes("pwsh");
+}
+
+export function buildPowerShellScriptContent(code: string): string {
+  return [
+    "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()",
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()",
+    "$OutputEncoding = [System.Text.UTF8Encoding]::new()",
+    code,
+  ].join("\n");
+}
+
 /**
  * Resolve the real OS temp directory, bypassing any TMPDIR env override.
  * os.tmpdir() reads TMPDIR from the environment, which some shells/tools
@@ -255,9 +269,13 @@ export class PolyglotExecutor {
       ),
     );
     if (language === "shell") {
+      const shellPath = this.#runtimes.shell;
+      const shellCode = isWin && isPowerShell(shellPath)
+        ? buildPowerShellScriptContent(code)
+        : code;
       writeFileSync(
         fp,
-        buildShellScriptContent(code, process.env.PATH, process.platform),
+        buildShellScriptContent(shellCode, process.env.PATH, process.platform),
         { encoding: "utf-8", mode: 0o700 },
       );
     } else {
@@ -371,8 +389,20 @@ export class PolyglotExecutor {
           resolved = true;
           if (proc.pid) this.#backgroundedPids.add(proc.pid);
           proc.unref();
-          proc.stdout!.destroy();
-          proc.stderr!.destroy();
+          // Do NOT destroy stdout/stderr — closing the read end of the pipe
+          // sends SIGPIPE to the child on its next write, killing it.
+          // Instead, replace the data listeners with no-op drains that
+          // consume the stream without accumulating buffers. This keeps
+          // the pipe open and prevents the child from blocking on a full
+          // pipe buffer.
+          if (proc.stdout) {
+            proc.stdout.removeAllListeners("data");
+            proc.stdout.on("data", () => {});
+          }
+          if (proc.stderr) {
+            proc.stderr.removeAllListeners("data");
+            proc.stderr.on("data", () => {});
+          }
           const rawStdout = Buffer.concat(stdoutChunks).toString("utf-8");
           const rawStderr = Buffer.concat(stderrChunks).toString("utf-8");
           res({
@@ -585,10 +615,19 @@ export class PolyglotExecutor {
       env["PATH"] = isWin ? "" : "/usr/local/bin:/usr/bin:/bin";
     }
 
-    // Windows-critical env vars and path fixes
+    // Windows-critical PATH fixes.
     if (isWin) {
-      env["MSYS_NO_PATHCONV"] = "1";
-      env["MSYS2_ARG_CONV_EXCL"] = "*";
+      // Do not carry global MSYS path-conversion blockers into Git Bash.
+      // Native Windows tools launched from bash (notably git.exe) need MSYS
+      // to convert /tmp-style arguments to Windows paths so sibling tools see
+      // the same filesystem location (#791).
+      for (const key of Object.keys(env)) {
+        const upper = key.toUpperCase();
+        if (upper === "MSYS_NO_PATHCONV" || upper === "MSYS2_ARG_CONV_EXCL") {
+          delete env[key];
+        }
+      }
+
       const gitUsrBin = "C:\\Program Files\\Git\\usr\\bin";
       const gitBin = "C:\\Program Files\\Git\\bin";
       if (!env["PATH"].includes(gitUsrBin)) {

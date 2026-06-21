@@ -959,6 +959,7 @@ describe("ClaudeCodeAdapter", () => {
         PreCompact: "precompact.mjs",
         UserPromptSubmit: "userpromptsubmit.mjs",
         SessionStart: "sessionstart.mjs",
+        Stop: "stop.mjs",
       };
       for (const [eventType, script] of Object.entries(expectedScripts)) {
         const entries = config[eventType];
@@ -1064,6 +1065,26 @@ describe("ClaudeCodeAdapter", () => {
       expect(entry!.hooks[0].command).toContain("pretooluse.mjs");
     });
 
+    it("hooks/hooks.json registers Stop for Claude Code turn-end capture", () => {
+      const repoRoot = resolve(__dirname, "..", "..");
+      const hooksJsonPath = join(repoRoot, "hooks", "hooks.json");
+      const parsed = JSON.parse(readFileSync(hooksJsonPath, "utf8")) as {
+        hooks: {
+          Stop?: Array<{
+            matcher: string;
+            hooks: Array<{ type: string; command: string }>;
+          }>;
+        };
+      };
+
+      expect(parsed.hooks.Stop, "Stop hook missing from hooks.json").toBeDefined();
+      expect(parsed.hooks.Stop).toHaveLength(1);
+      expect(parsed.hooks.Stop![0].matcher).toBe("");
+      expect(parsed.hooks.Stop![0].hooks).toHaveLength(1);
+      expect(parsed.hooks.Stop![0].hooks[0].type).toBe("command");
+      expect(parsed.hooks.Stop![0].hooks[0].command).toContain("stop.mjs");
+    });
+
     it("POST_TOOL_USE_MATCHERS contains all tools that extractEvents handles", () => {
       const required = [
         "Bash", "Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep",
@@ -1116,7 +1137,7 @@ describe("ClaudeCodeAdapter", () => {
     });
 
     it("returns one HealthCheck per HOOK_SCRIPTS entry (Algo-D1)", () => {
-      // All five hook scripts present on disk → all five hook-script
+      // All six hook scripts present on disk → all six hook-script
       // checks PASS. The check iterates HOOK_SCRIPTS keys (the canonical
       // list) so adding a new event auto-extends doctor coverage — no
       // parallel hardcoded list to maintain. Filter to hook-script
@@ -1128,6 +1149,7 @@ describe("ClaudeCodeAdapter", () => {
         "precompact.mjs",
         "sessionstart.mjs",
         "userpromptsubmit.mjs",
+        "stop.mjs",
       ];
       for (const s of scripts) writeFileSync(join(pluginRoot, "hooks", s), "");
 
@@ -1141,7 +1163,7 @@ describe("ClaudeCodeAdapter", () => {
     });
 
     it("reports FAIL with missing path detail when a script is absent (Algo-D1)", () => {
-      // Only sessionstart.mjs present → 4 hook-script FAILs + 1 OK. The
+      // Only sessionstart.mjs present → 5 hook-script FAILs + 1 OK. The
       // FAIL detail must reference the exact missing absolute path (not
       // a regex capture artifact like ".../Services/AppData/...").
       // Filter to hook-script checks so this test is independent of
@@ -1157,7 +1179,7 @@ describe("ClaudeCodeAdapter", () => {
       const failed = hookResults.filter((r) => r.status === "FAIL");
       const ok = hookResults.filter((r) => r.status === "OK");
       expect(ok.length).toBe(1);
-      expect(failed.length).toBe(4);
+      expect(failed.length).toBe(5);
       for (const r of failed) {
         expect(r.detail).toContain(pluginRoot);
         expect(r.detail!.endsWith(".mjs")).toBe(true);
@@ -1233,6 +1255,7 @@ describe("ClaudeCodeAdapter", () => {
         "precompact.mjs",
         "sessionstart.mjs",
         "userpromptsubmit.mjs",
+        "stop.mjs",
       ];
       for (const s of scripts) writeFileSync(join(pluginRoot, "hooks", s), "");
 
